@@ -1,0 +1,77 @@
+<h2>Introduction to QMC - Part 1</h2>
+This is the first part in a short series of blog posts about quantum Monte Carlo (QMC) that are based on an introductory lecture I gave on the subject at the University of Guelph.
+
+QMC offers solutions to complicated multi-dimensional integrals using random sampling. I think it would have been difficult to imagine the massive populatiry of QMC in current research when it was first being conceived. A quick search on the <a href="http://arxiv.org/" target="_blank">arXiv</a> (where new research can be posted prior to the peer review process) revealed ~350 articles with "Monte Carlo" in the abstract since the start of 2016 - that's nearly 6 per day!  The <a href="http://jackman.stanford.edu/mcmc/metropolis1.pdf" target="_blank">birth of this technique</a> occurred in the years following the creation of the first electronic computer in 1945. I'm sure the idea had crossed the mind of many researchers before this time - including Enrico Fermi in the 1930's - but it was only with the advent of powerfull computing machines that it could be usefull. To this day, the most significant limitations of QMC have to do with computational power.
+
+Here we discuss a simple program to calcualte $latex \pi=$ 3.141592... using Python. Take a circle inside a square box:
+
+<img class="aligncenter size-medium wp-image-858" src="https://galeascience.files.wordpress.com/2016/03/circle_in_box.png?w=600" alt="circle_in_box" width="300" height="300" />
+
+We will randomly selects points within the box and we keep track of what percentage happen to be inside the circle. Then $latex \pi$ can be approximated using the formula:
+<p style="text-align:center;">$latex \frac{\text{points in circle}}{\text{total points}}\approx\frac{\text{area of circle}}{\text{area of box}}.$</p>
+Because our program will involve random sampling we can say that it uses the Monte Carlo method.
+
+Let's use the Numpy package to define the actual value of $latex \pi$. This can be done in multiple ways:
+
+[code language="python"]
+import numpy as np
+
+# we can define the exact value of Pi
+# using the inverse tangent function
+Pi = 4*np.arctan(1)
+
+# this is equivalent to numpy.pi
+print(Pi == np.pi)
+[/code]
+&gt;&gt; True
+
+&nbsp;
+
+Next we define a function to approximate $latex \pi$ for a given number of sampling points. Due to symmetry we only need to sample from the upper right corner of the box (one quarter of the circle). In this case the formula to determine $latex \pi$ can be explicitly written as
+<p style="text-align:center;">$latex \frac{\text{points in circle}}{\text{total points}}=\frac{\pi L^2}{4}\frac{1}{L^2},$</p>
+where the box side-length variable $latex L$ will cancel out.
+
+[code language="python"]
+# this function uses numpy to produce random
+# samples in the range 0 to 1 and counts how
+# many are in a quarter-circle of radius 1
+def approximate_pi(number_of_throws):
+    hits = 0
+    for i in range(number_of_throws):
+        x, y = np.random.uniform(0, 1, size=2)
+        r = (x**2 + y**2)**0.5
+        hits = hits + 1*(r &lt; 1)
+    return hits/number_of_throws*4
+[/code]
+
+&nbsp;
+
+For 10,000 samples we get the following plot:
+
+<img class="alignnone size-full wp-image-860" src="https://galeascience.files.wordpress.com/2016/03/pi_approx.png" alt="pi_approx" width="1211" height="1196" />
+
+&nbsp;
+
+We can test for convergence with increasing sample size by looking at the error of our approximation, given by
+<p style="text-align:center;">$latex \text{error} = \frac{|\pi_{approx}-\pi|}{\pi}.$</p>
+Let's plot this function for a list of numbers arranged uniformly on a logarithmic scale:
+
+[code language="python"]
+sample_numbers = np.logspace(1, 6, num=100)
+pi_approximations = [approximate_pi(int(i))
+                     for i in sample_numbers]
+error = [np.abs(i-Pi)/Pi
+         for i in pi_approximations]
+[/code]
+
+&nbsp;
+
+<img class="alignnone size-full wp-image-859" src="https://galeascience.files.wordpress.com/2016/03/pi_error.png" alt="pi_error" width="1640" height="1208" />
+
+&nbsp;
+
+As the error approaches zero for increasingly large sample size we converge to the actual value for $latex \pi$.  The approximation agrees within 1% of this value for sample sizes larger than 1,000.
+
+Another method for estimating $latex \pi$ with random sampling is <a href="http://mste.illinois.edu/activity/buffon/" target="_blank">Buffon's needle experiment</a>, which can be dated back to the year 1777.
+
+Thanks for reading! You can find the entire ipython notebook document <a href="https://github.com/agalea91/intro_to_QMC" target="_blank">here</a>. If you would like to discuss any of the plots or have any questions or corrections, please write a comment. You are also welcome to email me at agalea91@gmail.com

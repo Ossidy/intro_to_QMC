@@ -1,0 +1,310 @@
+This is the second part in a short series of blog posts about quantum Monte Carlo (QMC).  The series is derived from an introductory lecture I gave on the subject at the University of Guelph.
+
+<a href="https://galeascience.wordpress.com/2016/03/02/approximating-pi-with-monte-carlo-simulations/" target="_blank">Part 1 - calculating Pi with Monte Carlo</a>
+
+&nbsp;
+<h2>Introduction to QMC - Part 2: Statistical foundations</h2>
+As seen in Part 1 of this series, Monte Carlo programs involve random sampling. In our example, where we calculated $latex \pi$ by randomly choosing points in a square, the probability of selecting a point in any given location was equal. In other words, we sampled a uniform probability distribution. In QMC the probability density of the many-body system (e.g., 66 particles) is randomly sampled. We'll get into the details of how this sampling can be done in the next post.
+<h3>Law of large numbers</h3>
+The most basic statistical foundation of QMC is the law of large numbers. This law states that as the number of random samples from a distribution becomes large, their average value approaches the true (i.e., theoretical) mean of the distribution. This can easily be understood in the case of independent random samples drawn from a simple probability distribution. For example, in the case of flipping a coin where we compare heads (with $latex p$ = 50%) and tails (with $latex p$ = 50%), the ratio becomes increasingly close to 1 as the number of samples increases.
+<h3>Galton's board</h3>
+We'll illustrate the law of large numbers by sampling the binomial distribution. This can be achieved using a Galton board set-up where a ball is dropped onto a board of pegs such that, as it passes down the board, it has a 50% chance of bouncing to the left and a 50% chance of bouncing to the right of each peg (as seen in <a href="https://youtu.be/6YDHBFVIvIs?t=15" target="_blank">this video</a>).  <a href="https://en.wikipedia.org/wiki/Bean_machine" target="_blank">The board</a> has been named after Sir Francis Galton, who published research on the subject [1].
+
+The concept can be compared to flipping a coin and keeping track of the order of the results. For example the ball bouncing to the left at every row on the board would be as likely as flipping heads $latex n_{\text{rows}}$ consecutive times, where $latex n_{\text{rows}}$ is the number of peg rows on the board. The distribution of <em>paths</em> is uniformly weighted in each case; for example the ball has an equal probability of taking any path to the bottom. The Galton board ultimately categorizes the outcome in terms of the spacial position of the ball (namely, which bin it's in) - this is what allows a set of equally weighted paths to yield a binomial distribution.
+<h3>Binomial distribution</h3>
+The probability of the ball landing in any given bin (at the bottom of the board) can be calculated by counting the number of paths that lead there and then dividing that value by the total number of paths. The resulting distribution is discrete and can be calculated by evaluating the Binomial probability mass function:
+<p style="text-align:center;">$latex
+\text{pmf}(k, n) = {}_{n} C_{k} \cdot P(k,n)
+$</p>
+for each bin number $latex k$, where there are $latex n$+1 total bins. The bins are labelled starting at $latex k= $ 0 and up to $latex k=n$.  If, for example, $latex k=n/2$ then $latex \text{pmf}(k, n)$ is the probability of the ball landing in the center bin. We'll discuss each term in $latex \text{pmf}(k, n)$ separately.
+
+The first term is the choose operator:
+<p style="text-align:center;">$latex
+{}_{n} C_{k} = {n \choose k} = \frac{n!}{k!(n-k)!}~.
+$</p>
+More formally, it's called the binomial coefficient; it counts the number of paths to each bin. Consider the case of 4 bins:
+
+<img class="  wp-image-973 aligncenter" src="https://galeascience.files.wordpress.com/2016/03/galton_board_4_bins.png" alt="galton_board_4_bins.png" width="400" height="259" />
+
+&nbsp;
+
+The binomial coefficients in this case evaluate to:
+<p style="text-align:center;">$latex
+{}_{3} C_{k} = \bigg[{3 \choose 0}, {3 \choose 1}, {3 \choose 2}, {3 \choose 3}\bigg] = [1, 3, 3, 1].
+$</p>
+When $latex n=$ 3, we expect (in the limit of large sample number) three times as many balls in the middle bins compared to the outer bins. The probability of landing in a middle bin is
+<p style="text-align:center;">$latex
+\frac{{}_{3} C_{1} + {}_{3} C_{2}}{\sum{{}_{3} C_{k}}} = \frac{3+3}{1+3+3+1} = \frac{3}{4}.
+$</p>
+&nbsp;
+
+The second term in $latex \text{pmf}(k, n)$ is a product of consecutive probabilities with the general form:
+<p style="text-align:center;">$latex
+P(k,n) = p^k (p-1)^{n-k},
+$</p>
+<p style="text-align:left;">where $latex p$ is a likelihood factor for each event. On the Galton board, the ball has an equally likely chance of going to the left or right of each peg, therefore we set $latex p =$ 0.5 and simplify the expression to:</p>
+<p style="text-align:center;">$latex
+P(n)=0.5^{n},
+$</p>
+where the $latex k$ dependence drops out.
+
+Our simplified expression for the probability mass function is
+<p style="text-align:center;">$latex
+\text{pmf}(k, n) = {}_{n} C_{k} \cdot P(n) \\ \\~~~~~~~~~~~~~ = \frac{n!}{k!(n-k)!} \cdot 0.5^n
+$</p>
+
+<h3>Python Galton board experiment</h3>
+Okay, time for the fun part. We'll first import packages and set up the plotting environment:
+
+[code language="python"]
+import numpy as np
+import scipy as sp
+
+%matplotlib inline
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set_style('whitegrid',{'grid.linestyle': '--',
+              'grid.color': '0.9',
+              'axes.edgecolor': '0.3'})
+sns.set_context('poster')
+[/code]
+
+&nbsp;
+
+Since the board itself in an object (in real life) it seemed intuitive to define it as a class:
+
+[code language="python"]
+class Galton():
+    def __init__(self, peg_rows):
+
+        # peg_rows - number of rows on the board
+        self.peg_rows = peg_rows
+
+        # peg_number - total number of pegs on the board
+        self.peg_number = sum([i for i in
+                               range(1,peg_rows+1)])
+
+        # bin_number - number of bins to collect balls
+        self.bin_number = peg_rows + 1
+
+        # bins - array of the bin locations
+        self.bins = np.arange(-peg_rows/2, peg_rows/2+1,
+                              dtype=np.float)
+
+        # p, n - parameters of the binomial
+        #        probability mass function (pmf)
+        self.p = 0.5
+        self.n = peg_rows
+
+        # mean, std - mean, standard deviation of pmf
+        self.mean = self.n*self.p
+        self.std = (self.mean*(1-self.p))**(0.5)
+
+    def drop_balls(self, samples):
+        # rv - random binomial variate array
+        self.samples = samples
+        rv = np.random.binomial(n=self.peg_rows, p=0.5,
+                                size=samples)
+        rv = rv - self.peg_rows/2
+        return rv
+[/code]
+
+&nbsp;
+
+The function drop_balls() returns a Numpy array of random variates spanning the range of the bins. The $latex n$ parameter of the binomial distribution is set equal to the number of rows of pegs the ball encounters.
+
+We'll define a new board with a given number of rows:
+
+[code language="python"]
+# set up an experiment 'ex'
+ex = Galton(peg_rows=91)
+
+print('Our Galton board has {} rows of pegs and {} total pegs.'
+      .format(ex.peg_rows, ex.peg_number))
+[/code]
+&gt;&gt; Our Galton board has 91 rows of pegs and 4186 total pegs.
+
+&nbsp;
+
+We can now perform an experiment using the board we set up:
+
+[code language="python"]
+# drop a given number of balls
+rv = ex.drop_balls(samples=1000)
+
+print('We just dropped {} balls.'.format(ex.samples))
+[/code]
+&gt;&gt; We just dropped 1000 balls.
+
+&nbsp;
+
+The result will look different each time the script is run [2]. Below is a plot showing mine.  I also included the Binomial pmf (i.e., the result as $latex n_{samples} \rightarrow \infty$) and its continuous generalization - the Gaussian probability distribution function (pdf).
+
+&nbsp;
+
+<img class="alignnone size-full wp-image-970" src="https://galeascience.files.wordpress.com/2016/03/91_rows_1000_samples.png" alt="91_rows_1000_samples" width="1622" height="1192" />
+
+&nbsp;
+
+The "Random drops" histogram is normalized by setting normed=True in plt.hist(); this scales the histogram such that the bins sum to 1. The Binomial pmf was created using Scipy (imported as sp):
+
+[code language="python"]
+if ex.peg_rows%2 == 0:
+    x = ex.bins
+else:
+    # need integers for discrete pmf
+    # therefore we will offset the current bins
+    x = [i+0.5 for i in ex.bins]
+pmf = [sp.stats.binom.pmf(k+int(ex.mean), n=ex.n, p=ex.p)
+       for k in x]
+plt.bar(ex.bins, pmf, width=0.7, alpha=0.5,
+        color='orange', align='center',
+        log=log, # log is a boolean variable
+        label='Binomial pmf',
+        zorder=1) # zorder sets which plot is on top
+                  # 1 means furthest to the back
+[/code]
+
+&nbsp;
+
+I allowed ex.bins, a list of bin locations on the x-axis, to include float numbers like 0.5 and 1.5 such that the bins remain centered about 0 for any size board (i.e., if there are an even or odd number of bins). This is why the x-variable in the code above is conditional on the number of peg rows.
+
+The Gaussian was also created with Scipy:
+
+[code language="python"]
+    x = np.arange(min(ex.bins), max(ex.bins), 0.1)
+    pmf = [sp.stats.norm.pdf(x=k, loc=0, scale=ex.std)
+           for k in x]
+    if not(log):
+        plt.plot(x, pmf, alpha=0.5, color='r', lw=5,
+                 label='Gaussian pdf')
+[/code]
+
+&nbsp;
+
+As you may have noticed, I've been carrying around a boolean variable named "log" to specify the y-axis scaling. The log-scale plots illustrate that a large number of samples are required to achieve the most unlikely outcomes.
+
+&nbsp;
+
+<img class=" size-full wp-image-975 aligncenter" src="https://galeascience.files.wordpress.com/2016/03/sampling_12_row_board.png" alt="sampling_12_row_board" width="1756" height="1733" />
+
+&nbsp;
+
+Adequate sample numbers depend on the number of peg rows (or equivalently bins) on the board. See, for example:
+
+<img class=" size-full wp-image-971 aligncenter" src="https://galeascience.files.wordpress.com/2016/03/bins_vs_samples.png" alt="bins_vs_samples" width="1818" height="1829" />
+
+&nbsp;
+
+The figure below shows logarithmic plots in the same style:
+
+<img class="alignnone size-full wp-image-972" src="https://galeascience.files.wordpress.com/2016/03/bins_vs_samples_log.png" alt="bins_vs_samples_log" width="1818" height="1807" />
+
+&nbsp;
+<h3>Central limit theorem</h3>
+What does all this stuff have to do with quantum Monte Carlo? In QMC, like the Galton board, a probability distribution is sampled. This distribution, however, is much more complicated; it's the probability density (i.e., $latex |\psi|^2$) of our system of particles.
+
+In variational Monte Carlo (VMC), for example, the energy expectation value integral is evaluated by approximating it as a sum over the energy of configurations distributed according to the "variational" probability density $latex |\psi_V|^2$. This approximation (which we'll see in more detail in an upcoming post) is valid because of the central limit theorem.  It states that the distribution of sample means (e.g., the means of $latex N/m$ sets of size $latex m$) will be normally distributed if $latex N$ and $latex m$ are sufficiently large.
+
+It's tempting to say that our Galton board experiment results, being normally distributed, are evidence of the central limit theorem. However in this case the underlying distribution is itself the normal distribution - so it's obvious that the means would be distributed this way!
+
+To properly illustrate the central limit theorem we'll sample a <a href="https://en.wikipedia.org/wiki/Log-normal_distribution" target="_blank">log-normal distribution</a> 1 million times and plot three histograms of sample means. In each case the 1 million samples are grouped into different sized subsets and each subset is averaged. Plotting the distribution of averages yields:
+
+&nbsp;
+
+<img class="alignnone size-full wp-image-974" src="https://galeascience.files.wordpress.com/2016/03/log_normal_central_limit_theroem.png" alt="log_normal_central_limit_theroem" width="1622" height="1196" />
+
+&nbsp;
+
+Just to be clear, the "1 sample per mean" distribution contains the 1 million original samples unadjusted. As can be seen, by increasing the number of samples per mean the distribution of sample means becomes increasingly close to a Gaussian centered about the true mean of the sampling distribution. This is the central limit theorem.
+
+The Python code used to generate this figure is shown below. First the distribution is sampled using Numpy and the different sized sample mean sub-lists are arranged.
+
+[code language="python"]
+def random_samples(size):
+    ''' Return a list of random variates distributed
+        according to the log-normal distribution.'''
+    # define parameters of our log-normal distribution
+    sig, mu = 1, 3
+    rv = np.random.lognormal(mean=mu, sigma=sig, size=size)
+    return rv
+
+N = 1000000
+mean_sizes_m = [1, 10, 100]
+
+rv = random_samples(N)
+rv_split = [[rv[i:i+m] for i in range(0, len(rv), m)]
+            for m in mean_sizes_m]
+sample_means = [[s.mean() for s in samples]
+                for samples in rv_split]
+[/code]
+
+&nbsp;
+
+Now we have a list containing 3 lists of sample means. The size of each is given by $latex N/m$ where $latex N$ is the total number of samples and $latex m$ is the number of samples per mean.
+
+[code language="python"]
+[len(s) for s in sample_means]
+[/code]
+&gt;&gt; [1000000, 100000, 10000]
+
+&nbsp;
+
+The average of each set of means must be the same because each is drawn from the same data set of 1 million samples.
+
+[code language="python"]
+[sum(s)/len(s) for s in sample_means]
+[/code]
+&gt;&gt; [33.148, 33.148, 33.148]
+
+&nbsp;
+
+Finally, the frequency of the sample means is plotted along with the distribution itself (using Scipy).
+
+[code language="python"]
+x = np.arange(0,70,1)
+colors = ['orange', 'g', 'b']
+
+# plot the histograms
+for i, set_of_sample_means in enumerate(sample_means):
+    if mean_sizes_m[i] == 1:
+        lab = '{} sample per mean'.format(mean_sizes_m[i])
+    else:
+        lab = '{} samples per mean'.format(mean_sizes_m[i])
+    plt.hist(set_of_sample_means, bins=x,
+             normed=True, alpha=0.5,
+             color=colors[i],
+             label=lab)
+
+# define parameters of our log-normal distribution
+sig, mu = 1, 3
+
+# plot our distribution
+lognorm_pdf = [sp.stats.lognorm.pdf(x=i, s=sig, scale=np.exp(mu))
+               for i in x]
+plt.plot(x, lognorm_pdf, lw=4, c='r', alpha=0.5,
+         label='probability distribution')
+
+# plot the mean of the distribution,
+plt.axvline(np.exp(mu + 0.5*sig**2), 0, 1,
+            color='black', alpha=0.5, label='mean')
+
+plt.title('Sample means drawn from {0:.1e} log-normally distributed samples'
+          .format(N), y=1.03, fontsize=20)
+plt.ylabel('Normalized frequency', labelpad=15)
+plt.xlabel('$x$ variable of log-normal pdf', labelpad=15)
+
+plt.legend()
+plt.savefig('log_normal_central_limit_theroem.png',
+             bbox_inches='tight', dpi=144)
+[/code]
+
+&nbsp;
+
+Thanks for reading! You can find the entire ipython notebook document <a href="https://github.com/agalea91/intro_to_QMC/blob/master/post_2_galton/galton.ipynb" target="_blank">here</a>. If you would like to discuss any of the plots or have any questions or corrections, please write a comment. You are also welcome to email me at agalea91@gmail.com or tweet me @agalea91
+
+&nbsp;
+
+[1] See e.g., <a href="http://babel.hathitrust.org/cgi/pt?id=hvd.32044024587826;view=1up;seq=81;size=175" target="_blank">page 63</a> of Francis Galton's 1894 publication entitled "Natural Inheritance".
+
+[2] In principle this can be done by setting a random "seed" value for the random number generator (e.g. 17).
