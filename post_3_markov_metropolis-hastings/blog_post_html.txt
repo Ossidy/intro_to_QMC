@@ -1,0 +1,339 @@
+This is the third part in a short series of blog posts about quantum Monte Carlo (QMC). The series is derived from an introductory lecture I gave on the subject at the University of Guelph.
+
+<a href="https://galeascience.wordpress.com/2016/03/02/approximating-pi-with-monte-carlo-simulations/">Part 1 - calculating Pi with Monte Carlo</a>
+
+<a href="https://galeascience.wordpress.com/2016/03/11/galtons-peg-board-and-the-central-limit-theorem/">Part 2 - Galton's peg board and the central limit theorem</a>
+<h2>Introduction to QMC - Part 3: Markov Chains and the Metropolis algorithm</h2>
+So far in this series we have seen various examples of random sampling. Here we'll look at a simple Python script that uses Markov chains and the Metropolis algorithm to randomly sample complicated two-dimensional probability distributions.
+<h3>Markov Chains</h3>
+If you come from a math, statistics, or physics background you may have leaned that a Markov chain is a <strong>set of states that are sampled from a probability distribution</strong>.
+
+More recently, they have been used to string together words and make pseudo-random sentences [1]. In this case the state is defined by e.g. the current and previous words in the sentence and the next words is generated based on this "state". We won't be looking at this sort of thing today, but instead going back to where it all began.
+
+In the early 1900's a Russian mathematician named Andrey Markov published a series of papers describing, in part, his method for randomly sampling probability distributions using a <em>dependent</em> data set. It was not always clear how this could be done, and some believed that the law of large numbers (and hence the <a href="https://twitter.com/agalea91/status/725064423489060866">central limit theorem</a>) would only apply to an independent data set. Among these disbelievers was another Russian professor named Pavel Nekrasov and there's an interesting story about a "rivalry" between Markov and Nekrasov. To quote <a href="http://www.thebigquestions.com/markov2.pdf">Eugene Seneta (1996)</a>:
+<p style="text-align:center;"><strong>"Nekrasov's (1902) attempt to use mathematics and statistics in support of 'free will' … led Markov to construct a scheme of dependent random variables $latex \{X_{n}\}$ in his 1906 paper"</strong></p>
+Markov layed out the rules for properly creating a <em>chain, </em>which is a series of states where each is connected, in sequence, according to a specific set of rules [2]. The transition between states must be ergodic, therefore
+<ul>
+	<li>Any state can be achieved within a finite number of steps; this ensures that the entire configuration space is traversable</li>
+	<li>There is a chance of staying in the same place when the system steps forward</li>
+	<li>The average number of steps required to return to the current state is finite</li>
+</ul>
+These rules may not apply, as such, for the modern Markovian-chain pseudo random text generators discussed above. However for other applications (such as QMC) these are very important.
+
+The stage was set, but Markov would never live to see his ideas applied to QMC. This was done in the 1950's and paralleled the creation of the worlds first electronic computer. And speaking about that ...
+<h3>Metropolis algorithm</h3>
+QMC requires a set of configurations distributed according to the probability distribution (i.e., sampled from the square of the wave function). A configuration is a vector that contains the positions (e.g., $latex x$, $latex y$, $latex z$ coordinates) of each particle.
+
+Recall, for comparison, how we used the Galton board to sample the binomial distribution. For QMC the probability distributions $latex P(\mathbf{R})$, where $latex \mathbf{R}$ is a "many-body" configuration vector, are much more complicated and samples can be produced using the Metropolis algorithm. This algorithm obeys the rules for creating a Markov chain and adds some (crucial) details. Namely, when transitioning from the current state to the next in the chain of configurations, we accept the move with probability:
+<p style="text-align:center;">$latex A(\mathbf{R}' \rightarrow \mathbf{R}) = \text{min} \Big[ 1, \frac{P(\mathbf{R}) \Lambda(\mathbf{R} \rightarrow \mathbf{R}') }{ P(\mathbf{R}') \Lambda(\mathbf{R}' \rightarrow \mathbf{R}) } \Big] $,</p>
+where $latex \mathbf{R}'$ is the configuration of the current state and $latex \mathbf{R}$ is the configuration of the next proposed state. The move itself involves shifting the location of some or (in practice) all of the particles and this is done randomly according to a transition rule $latex \Lambda$. In my experience it's usually the case that $latex \Lambda(\mathbf{R}' \rightarrow \mathbf{R})$ is equal to the opposite transition $latex \Lambda(\mathbf{R} \rightarrow \mathbf{R}')$ and therefore we can simplify the acceptance probability to:
+<p style="text-align:center;">$latex A(\mathbf{R}' \rightarrow \mathbf{R}) = \text{min} \Big[ 1, \frac{P(\mathbf{R}) }{ P(\mathbf{R}') } \Big] $.</p>
+In English, this means we take $latex A$ as the ratio of the square of the wave function evaluated at the proposed and current configurations, or we take $latex A$ as 1 if this ratio is larger than 1. If $latex A=1$ then we accept the move and if $latex A &lt; 1$ we do the following:
+<ul>
+	<li>Produce a random number $latex \chi$ from 0 to 1</li>
+	<li>Calculate $latex m=A + \chi$</li>
+	<li>Accept the move if $latex m &gt;= 1$, otherwise reject</li>
+</ul>
+The average acceptance ratio is an important quantity for controlling and understanding simulations and it will depend on the "maximum move size" $latex dr$ (which is the maximum distance each particle can be shifted in each coordinate for each move – the actual distance shifted will depend also on a random number). Usually a desirable acceptance ratio is 50%.
+<h3>Metropolis Monte Carlo sampling with Python</h3>
+Let's look at a simple script for sampling two-dimensional probability distributions. If you're familiar with Python then reading over the code should be a great way of solidifying / understanding the Metropolis algorithm as discussed above.
+
+[code language="python"]
+import numpy as np
+
+def Metroplis_algorithm(N, m, dr):
+    ''' A Markov chain is constructed, using the
+    Metropolis algorithm, that is comprised of
+    samples of our probability density: psi(x,y).
+
+    N - number of random moves to try
+    m - will return a sample when i%m == 0
+        in the loop over N
+    dr - maximum move size (if uniform),
+         controls the acceptance ratio '''
+
+    # we'll want to return the average
+    # acceptance ratio
+    a_total = 0
+
+    # sample locations will be stored in a list
+    samples = []
+
+    # get the starting configuration
+    # and sample probability distribution
+    # we'll start at r=(0,0)
+    r_prime = np.zeros(2)
+    p_prime = psi(r_prime[0], r_prime[1])
+
+    for i in range(N):
+        # propose a random move: r'-> r
+        r = r_prime + np.random.uniform(-dr,dr,
+                                        size=2)
+        p = psi(r[0], r[1])
+
+        # calculate the acceptance ratio
+        # for the proposed move
+        a = min(1, p/p_prime)
+        a_total += a
+
+        # check for acceptance
+        p_prime, r_prime = check_move(p_prime, p,
+                                      r_prime, r)
+
+        if i%m == 0:
+            samples.append(r_prime)
+
+    return np.array(samples), a_total/N*100.0
+
+def check_move(p_prime, p, r_prime, r):
+    ''' The move will be accepted or rejected
+        based on the ratio of p/p_prime and a
+        random number. '''
+
+    if p/p_prime >= 1:
+        # accept the move
+        return p, r
+
+    else:
+        rand = np.random.uniform(0, 1)
+        if p/p_prime + rand >= 1:
+            # accept the move
+            return p, r
+        else:
+            # reject the move
+            return p_prime, r_prime
+[/code]
+
+&nbsp;
+
+Here we are building one Markov chain by propagating a single "walker". A walker is generally a configuration of particles, but in our case we are only worrying about one "particle" – our sampling location. In order to ensure that our samples are sufficiently well spread out, we only take one sample at every $latex m$ iterations. The probability distribution is called `psi` and it takes the positional arguments $latex x$ and $latex y$. We'll use this tricky combination of 2D (bivariate) Gaussians:
+
+[code language="python"]
+import matplotlib.mlab as mlab
+
+def psi(x, y):
+    ''' Our probability density function is the addition
+        of two 2D Gaussians with different shape. '''
+    g1 = mlab.bivariate_normal(x, y, 2.0, 2.0, -5, -5, 0)
+    g2 = mlab.bivariate_normal(x, y, 0.5, 5.0, 10, 10, 0)
+    return g1 + g2
+[/code]
+
+&nbsp;
+
+Let's see what happens when we run this script:
+
+[code language="python"]
+N, m, dr = 50000, 10, 3.5
+samples, a = Metroplis_algorithm(N, m, dr)
+[/code]
+
+We get the following samples (or something similar):
+<img class=" size-full wp-image-1620 aligncenter" src="https://galeascience.files.wordpress.com/2016/04/metropolis_sampling_11.png" alt="metropolis_sampling_1.png" width="1712" height="1536" />
+Because the first configuration in the Markov chain was defined as $latex x, y = 0, 0$, the algorithm pulled the walker into the nearest area of high probability and the other area was completely ignored! Perhaps this can be corrected by increasing the maximum move size for the "particle" at each iteration.
+
+&nbsp;
+
+<img class=" size-full wp-image-1615 aligncenter" src="https://galeascience.files.wordpress.com/2016/04/metropolis_acceptance_ratio.png" alt="metropolis_acceptance_ratio" width="1731" height="1692" />
+
+&nbsp;
+
+As can be seen, this doesn't really work. The move size must be quite large to achieve the desired effect, and by this point the sampling quality has degraded substantially. Notice how the acceptance ratio is correlated to the quality of sampling, and changes in response to altering the average move size (which is equal to half of the maximum move size: $latex dr/2$).
+
+A better solution is to propagate multiple walkers (effectively building a set of Markov chains) and choosing the initial configurations randomly in the simulation area. This way, although walkers may still be trapped inside one of the two Gaussians, they will be more evenly distributed between the two. Below we can see the results of doing this for a large number of iterations.
+
+&nbsp;
+
+<img class=" size-full wp-image-1616 aligncenter" src="https://galeascience.files.wordpress.com/2016/04/metropolis_sampling_1.png" alt="metropolis_sampling_1" width="1712" height="1231" />
+
+&nbsp;
+
+In this case, because the one distribution is so skinny, its beneficial to reduce the move size (as seen in the right panel) even though the acceptance ratio becomes larger than 50%. The modified script for using more than one walker is included below:
+
+[code language="python"]
+def Metroplis_algorithm_walkers(N, m, walkers, dr):
+    ''' A Markov chain is constructed, using the
+    Metropolis algorithm, that is comprised of
+    samples of our probability density: psi(x,y).
+
+    N - number of random moves to try
+    m - will return a samples when i%m == 0
+        in the loop over N
+    walkers - number of unique Markov chains
+    dr - maximum move size,
+         controls the acceptance ratio '''
+
+    # we'll want to return the average
+    # acceptance ratio
+    a_total = 0
+
+    # sample locations will be stored in a list
+    samples = []
+
+    # get the starting configuration
+    # and sample probability distribution
+    # we'll start at a randomly
+    # selected position for each walker
+    r_prime = [np.random.uniform(-10, 15, size=2) for w in range(walkers)]
+    p_prime = [psi(r_prime[w][0], r_prime[w][1])
+               for w in range(walkers)]
+
+    # initialize lists
+    r = [np.zeros(2) for w in range(walkers)]
+    p = [np.zeros(1) for w in range(walkers)]
+
+    for i in range(N):
+        for w in range(walkers):
+            # propose a random move: r'-> r
+            r[w] = r_prime[w] + np.random.uniform(-dr,dr,
+                                                  size=2)
+            p[w] = psi(r[w][0], r[w][1])
+
+            # calculate the acceptance ratio
+            # for the proposed move
+            a = min(1, p[w]/p_prime[w])
+            # update the total
+            a_total += a
+
+            # check for acceptance
+            p_prime[w], r_prime[w] = check_move(p_prime[w], p[w],
+                                                r_prime[w], r[w])
+
+            if i%m == 0:
+            samples.append(r_prime[w])
+
+    return np.array(samples), a_total/N/walkers*100.0
+
+def check_move(p_prime, p, r_prime, r):
+    ''' The move will be accepted or rejected
+    based on the ratio of p/p_prime and a
+    random number. '''
+
+    if p/p_prime >= 1:
+        # accept the move
+        return p, r
+
+    else:
+        rand = np.random.uniform(0, 1)
+        if p/p_prime + rand >= 1:
+            # accept the move
+            return p, r
+        else:
+            # reject the move
+            return p_prime, r_prime
+[/code]
+
+I thought it would also be fun to plot the distributions in 3D so I modified code from a <a href="http://matplotlib.org/mpl_toolkits/mplot3d/tutorial#contour-plots">matplotlib contour plot example</a> and produced this:
+<img class=" size-full wp-image-1617 aligncenter" src="https://galeascience.files.wordpress.com/2016/04/pretty_plot_metropolis_sampling.png" alt="pretty_plot_metropolis_sampling" width="1591" height="1591" />
+
+
+The samples can be seen as blue dots at the base of the distributions.
+&nbsp;
+I've included the modified code here:
+
+[code language="python"]
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+
+fig = plt.figure(figsize=(14,14))
+ax = fig.gca(projection='3d')
+# ax = fig.add_subplot(111, projection='3d')
+
+x1, x2 = -15, 15
+y1, y2 = -15, 30
+
+# set up a meshgrid - like labeling (x,y) coordinates
+# for each vertex on a piece of graph paper
+dx = 0.1
+pad = 5
+x = np.arange(x1, x2, dx)
+y = np.arange(y1, y2, dx)
+X, Y = np.meshgrid(x, y)
+
+# define Z as the value of the probability
+# distribution q at each 'vertex'
+# Z becomes a 2D Numpy array
+Z = psi(X, Y)
+
+# plot
+ax.plot_wireframe(X,Y,Z, rstride=5, cstride=7,
+                  color='r', alpha=0.7)
+ax.scatter(samples[:, 0], samples[:, 1], color='b', s=0.2)
+
+# make it pretty (as found in Axes3D.contour documentation)
+# cset = ax.contour(X, Y, Z, zdir='z', offset=-100, cmap=cm.coolwarm)
+cset = ax.contour(X, Y, Z, zdir='y', offset=y2, cmap=cm.coolwarm)
+
+cset = ax.contour(X, Y, Z, zdir='x', offset=x1, cmap=cm.coolwarm)
+
+# define the limits
+ax.set_xlabel('x', labelpad=15, fontsize=15)
+ax.set_xlim(x1, x2)
+ax.set_ylabel('y', labelpad=15, fontsize=15)
+ax.set_ylim(y1, y2)
+ax.set_zlabel('psi(x,y)', labelpad=15, fontsize=15)
+ax.set_zlim(0, 0.06)
+
+# ax.view_init(elev=20, azim=-45)
+
+plt.savefig('pretty_plot_metropolis_sampling.png', bbox_inches='tight', dpi=144)
+
+plt.show()
+[/code]
+&nbsp;
+The 2D plots we've been looking at were produced using this code:
+
+[code language="python"]
+import matplotlib.pyplot as plt
+
+def plot_samples(samples, psi, limits=[]):
+    ''' Plot the results of our Monte Carlo
+    sampling along with the underlying
+    probability distribution psi. '''
+
+    # set up a meshgrid - like labeling (x,y)
+    # coordinates for each vertex on a piece
+    # of graph paper
+    dx = 0.1
+    pad = 5
+    if limits:
+        xlow, xhigh = limits[0], limits[1]
+        ylow, yhigh = limits[2], limits[3]
+    else:
+        xlow = np.min(samples)-pad
+        xhigh = np.max(samples)+pad
+        ylow = np.min(samples)-pad
+        yhigh = np.max(samples)+pad
+
+    x = np.arange(xlow, xhigh, dx)
+    y = np.arange(ylow, yhigh, dx)
+    X, Y = np.meshgrid(x, y)
+
+    # define Z as the value of the probability
+    # distribution psi at each 'vertex'
+    # Z becomes a Numpy array
+    Z = psi(X, Y)
+
+    # must be feeding in numpy arrays below
+    plt.scatter(samples[:, 0], samples[:, 1],
+                alpha=0.5, s=1)
+    CS = plt.contour(X, Y, Z, 10)
+    plt.clabel(CS, inline=1, fontsize=10)
+
+    plt.xlim(xlow, xhigh)
+    plt.ylim(ylow, yhigh)
+    plt.xlabel('x', fontsize=20)
+    plt.ylabel('y', fontsize=20)
+    plt.tick_params(axis='both', which='major', labelsize=15)
+[/code]
+
+&nbsp;
+
+Thanks for reading! You can find the entire ipython notebook document <a href="https://github.com/agalea91/intro_to_QMC/blob/master/post_3_markov_metropolis-hastings/metropolis_hastings_notebook.ipynb">here</a>. If you would like to discuss any of the plots or have any questions or corrections, please write a comment. You are also welcome to email me at agalea91@gmail.com or tweet me @agalea91
+
+&nbsp;
+
+[1]  - A great Python example of pseudo-random text generation can be found <a href="http://agiliq.com/blog/2009/06/generating-pseudo-random-text-with-markov-chains-u/">here</a>. See also Andy's comment below.
+
+[2] – These rules can be found on page 58 of my <a href="https://www.physics.uoguelph.ca/Nucweb/theses/Galea_Alexander_201601_Msc.pdf">MSc thesis</a>.
