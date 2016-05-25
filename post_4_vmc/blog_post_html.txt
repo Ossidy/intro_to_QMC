@@ -1,0 +1,174 @@
+This is the fourth part in a short series of blog posts about quantum Monte Carlo (QMC). The series is derived from an introductory lecture I gave on the subject at the University of Guelph.
+
+<a href="https://galeascience.wordpress.com/2016/03/02/approximating-pi-with-monte-carlo-simulations/">Part 1 - calculating Pi with Monte Carlo</a>
+
+<a href="https://galeascience.wordpress.com/2016/03/11/galtons-peg-board-and-the-central-limit-theorem/">Part 2 - Galton's peg board and the central limit theorem</a>
+
+<a href="https://galeascience.wordpress.com/2016/04/27/markov-chain-monte-carlo-sampling/">Part 3 - Markov Chain Monte Carlo</a>
+<h2>Introduction to QMC - Part 4: High dimensional calculations with VMC</h2>
+In the previous post, Markov Chains were introduced along with the Metropolis algorithm. We then looked at a Markov Chain Monte Carlo (MCMC) Python script for sampling probability distributions. Today we'll use a modified version of that script to perform calculations <em>inspired by quantum mechanics</em>. This will involve sampling high dimensional probability distributions for systems with multiple particles.
+
+We are heading into complicated territory, so I set up the first section of this post in question-answer format.
+
+&nbsp;
+<h3>Why is it called VMC and not MCMC?</h3>
+As far as I can tell, variational Monte Carlo (VMC) is the same as MCMC. The name was probably inspired by the variational theorem from quantum mechincs, but we'll get to this later. For now let's simply pose the problem:
+<p style="text-align:center;"><strong>Given a probability distribution $latex \mathbf{P(R)}$, where $latex \mathbf{R=(r_1, r_2, ...)}$ is the configuration vector for the positions of $latex \mathbf{N}$ particles in a box, calculate the average energy $latex \mathbf{\langle E \rangle}$ of the system.</strong></p>
+Why do we need to worry about probability distributions? Because in the quantum world things to not always have well defined positions, but instead only have well defined probabilities of being in specific positions. Hence the existence of probability distributions.
+
+&nbsp;
+<h3>What function are we calculating?</h3>
+We'll calculate the average value of the local energy $latex E(\mathbf{R})$, which is defined as the sum of kinetic and potential energies:
+<p style="text-align:center;">$latex E(\mathbf{R}) = T(\mathbf{R}) + V(\mathbf{R}). $</p>
+It's not unreasonable to plug in some $latex \mathbf{R}$ and calculate $latex E(\mathbf{R})$ by hand or with a computer, but to calculate the average we'll need to sample the probability distribution with Monte Carlo.
+<h5>Kinetic term T</h5>
+The kinetic energy will depend on the second derivative of the wave function, which is relatively difficult and computationally time consuming to calculate. To avoid dealing with this beast we'll use <em>a made-up function</em>
+<p style="text-align:center;">$latex T(\mathbf{R}) = \Big[\sum_i^{N/2}|\, x_i \cdot y_i \, |\Big] \cdot \Big[\sum_{j'}^{N/2} | \, x_{j'} \cdot y_{j'} \, |\Big].$</p>
+It could be interpreted as the particles having more kinetic energy (i.e., larger $latex T$) depending on how far they are from the center of the box (as we'll see the box is centered about r=(0,0)). This doesn't make sense physically of course.
+<h5>Potential term V</h5>
+This is the cumulative potential energy of the particles, and unlike $latex T$ it will be calculated "for real" (i.e., how it actually can be done in practice). We'll assume the system is split into equal sized groups of different "species" particles, denoted $latex i$ and $latex j'$ [1], and only consider interactions between particles of different species. In this case we have
+<p style="text-align:center;">$latex V(\mathbf{R}) = \sum_{i&lt;j'}^{N} v(r_{i, j'}) ,$</p>
+where $latex v(r_{i, j'})$ is the two-body potential and $latex r_{ij'}$ is the distance between particles $latex i$ and $latex j'$. The $latex i&lt;j'$ notation ensures that we only count each interaction once. We'll take $latex v(r_{i, j'})$ to be a shifted Gaussian:
+
+[code language="python"]
+from scipy import stats
+
+mu = 0.5
+sig = 0.1
+y = lambda r: -stats.norm.pdf((r-mu)/(sig))
+[/code]
+
+<img class="  wp-image-2171 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/attractive_gausssian_potential.png?w=1700" alt="attractive_gausssian_potential" width="500" height="341" />
+
+We'll focus on the case where $latex N=4$, for which the potential becomes
+<p style="text-align:center;">$latex V(\mathbf{R}) = v(r_{1, 1'}) + v(r_{1, 2'}) + v(r_{2, 2'}). $</p>
+&nbsp;
+<h3>What probability distribution will we sample?</h3>
+From elementary quantum mechanics, the probability density is given by the square of the wave function. So, for our many-body wave function $latex \Psi_V$, we have that
+<p style="text-align:center;">$latex P(\mathbf{R}) = |\Psi_V^2(\mathbf{R})|. $</p>
+The absolute value is meaningful when the wave function has imaginary components, which is not the case for us today. Our first $latex \Psi_V$ will be a linear combination of single-particle wave functions $latex \psi_1(\mathbf{r})$ and $latex \psi_2(\mathbf{r})$:
+<p style="text-align:center;">$latex \Psi_V(\mathbf{R}) = \sum_i^N \Big[\psi_1(\mathbf{r}_i)+\psi_2(\mathbf{r}_i)\Big]. $</p>
+[code language="python"]
+def prob_density(R, N):
+    ''' The square of the many body wave function
+        Psi_V(R). '''
+
+    # e.g. for N=4:
+    # psi_v = psi(r_1) + psi(r_2) + psi(r_3) + psi(r_4)
+    psi_v = sum([psi_1(R[n][0], R[n][1]) for n in range(N)]) + \
+            sum([psi_2(R[n][0], R[n][1]) for n in range(N)])
+
+    # Setting anything outside the box equal to zero
+    # This will keep particles inside
+    for coordinate in R.ravel():
+        if abs(coordinate) &gt;= 1:
+            psi_v = 0
+
+    return np.float64(psi_v**2)
+[/code]
+
+Our configuration space is two dimensional (so we can visualize it nicely) and so particle positions consist of just $latex x$ and $latex y$ coordinates, i.e. $latex \mathbf{r}=(x, y)$. Lets take $latex \psi_1(\mathbf{r})$ to be a positive Gaussian and $latex \psi_2(\mathbf{r})$ to be a negative Gaussian.
+
+[code language="python"]
+def psi_1(x, y):
+    ''' A single-particle wave function. '''
+    g1 = lambda x, y: mlab.bivariate_normal(x, y, 0.2, 0.2, -0.25, -0.25, 0)
+    return g1(x, y)
+
+def psi_2(x, y):
+    ''' A single-particle wave function. '''
+    g2 = lambda x, y: -mlab.bivariate_normal(x, y, 0.2, 0.2, 0.25, 0.25, 0)
+    return g2(x, y)
+[/code]
+
+The summation of $latex \psi_1(\mathbf{r})$ and $latex \psi_2(\mathbf{r})$ looks like:
+
+<img class=" size-full wp-image-2174 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/single_particle_wave_function.png" alt="single_particle_wave_function" width="1591" height="1591" />
+
+If we take this summation to be the wave function of a system with just one particle then the associated probability distribution for the particle location would look like:
+
+<img class=" size-full wp-image-2176 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/single_particle_wave_function_squared.png" alt="single_particle_wave_function_squared" width="1591" height="1591" />
+
+So what about a plot of the many-body wave function $latex \Psi_V(\mathbf{R})$? We would require a higher dimensional space for this. Take the example of $latex N=4$ particles. In this case we have $latex \mathbf{R}=(\mathbf{r_1}, \mathbf{r_2}, \mathbf{r_3}, \mathbf{r_4})$ and would need to include an axes for not just "$latex x$ and $latex y$" as done above, but for $latex x_1$, $latex x_2$, $latex x_3$, $latex x_4$, $latex y_1$, $latex y_2$, $latex y_3$, and $latex y_4$.
+
+&nbsp;
+<h3>Calculating the average energy</h3>
+We'll focus on the $latex N=4$ particle system where 2 are species $latex i$ and 2 are species $latex j'$. The wave function in this case is
+<p style="text-align:center;">$latex \Psi_V(\mathbf{R}) = \psi_1(\mathbf{r}_1)+\psi_2(\mathbf{r}_1)+
+\psi_1(\mathbf{r}_2)+\psi_2(\mathbf{r}_2)+$
+$latex \,\,\,\,\, \psi_1(\mathbf{r}_{1'})+\psi_2(\mathbf{r}_{1'})+
+\psi_1(\mathbf{r}_{2'})+\psi_2(\mathbf{r}_{2'}). $</p>
+<p style="text-align:left;">Running a quick simulation with 1000 walkers (i.e., 1000 samples per step) for 40 steps, the samples look like this:</p>
+<p style="text-align:left;"><img class=" size-full wp-image-2183 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/vmc_n_4_random_start.png" alt="VMC_N_4_random_start" width="2192" height="2228" /></p>
+<p style="text-align:left;">The top left panel shows the initial state where walkers are distributed randomly. As the system equilibrates we see them drifting into areas where the probability density $latex \P(\mathbf{R})$ is large. Species $latex i$ is plotted in blue and $latex j'$ in red.</p>
+<p style="text-align:left;">To calculate $latex \langle E \rangle$ we average over many values of $latex E(\mathbf{R})$ for equilibrated samples. An example using 200 walkers is shown below.</p>
+<p style="text-align:left;"><img class=" size-full wp-image-2172 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/e_calc_n_4_800steps_200walkers.png" alt="E_calc_N_4_800steps_200walkers" width="1710" height="901" /></p>
+Each point is an average over all walkers at the given step. In this case we calculate an average energy of $latex -0.211 \pm 0.017$, where the first 200 steps have been excluded so we only average over the equilibrated system. The error, as shown by the red band around the average, is calculated as the sample standard deviation of $latex \langle E \rangle$ [2]:
+<p style="text-align:center;">
+$latex E_{\text{error}} = \sqrt{\frac{1}{N} \sum_{i=0}^N (E_i - \langle E \rangle)^2}$
+</p>
+<p style="text-align:left;">Running a calculation with 2000 walkers, we can see a dramatically reduced error:</p>
+<img class=" size-full wp-image-2173 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/e_calc_n_4_800steps_2000walkers.png" alt="E_calc_N_4_800steps_2000walkers" width="1710" height="901" />
+
+Now we calculate $latex \langle E \rangle = -0.202 \pm 0.005$, which agrees within error to the previous calculation.
+
+&nbsp;
+<h5>Equilibration times</h5>
+In the calculations above, the system appeared to equilibrate almost immediately. This is because the initial configurations were randomly distributed about the box. If instead we force the particles to start near the corners of the box (far away from the areas where the probability distribution is large) we can clearly see $latex E(\mathbf{R})$ decreasing as equilibration occurs. Below we plot this along with the particle density from various regions of the calculation (as marked in yellow in the right panel).
+
+<img class=" size-full wp-image-2182 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/vmc_n_4_edges_start_kde_3_panel.png" alt="VMC_N_4_edges_start_kde_3_panel" width="2103" height="3146" />
+
+&nbsp;
+<h3>Variational Theorem</h3>
+The usefulness of VMC for quantum mechanical problems has to do with the variational theorem. In words, this theorem says that the energy expectation value (denoted $latex \langle \hat{H} \rangle$ for short) is minimized by the <em>true ground state wave function of the system</em>. This can be written mathematically as follows:
+<p style="text-align:center;">$latex \langle \hat{H} \rangle \equiv \langle \Psi_V~|~\hat{H}~|~\Psi_V \rangle \geq E_0, $</p>
+where $latex E_0$ is the ground state energy of the system. A proof can be found at the bottom of page 60 of <a href="https://www.physics.uoguelph.ca/Nucweb/theses/Galea_Alexander_201601_Msc.pdf">my masters thesis</a>. The triple-bar equals sign simply means "is defined as", what's important is the other part of the equation.
+
+If the name of the game is to find the ground state energy, which is often the case, then a good estimate can be achieved using VMC. A $latex \Psi_V$ can include variable parameters to optimize, which is done by calculating $latex \langle \hat{H} \rangle$ for a particular set of parameters (the same way we've calcualted $latex \langle E \rangle$ in this post) and repeating for different parameters until the lowest value is found. The resulting energy estimate will be an upper bound to the true ground state energy of the system.
+
+&nbsp;
+<h3>Calculating average energy with a different many-body wave function</h3>
+To show how changing $latex \Psi_V$ can impact the calculation of $latex \langle E \rangle$ we'll adjust the wave function:
+<p style="text-align:center;">$latex \Psi_V(\mathbf{R}) = \sum_i^{N/2} \psi_1(\mathbf{r}_i) + \sum_{j'}^{N/2} \psi_2(\mathbf{r}_{j'}), $</p>
+where the two species $latex i$ and $latex j'$ now have different single-particle wave functions. As shown above, we define $latex \psi_1(\mathbf{r})$ as the left Gaussian (looking back to the first figure) and $latex \psi_2(\mathbf{r})$ as the right one. For $latex N=4$ we now have:
+<p style="text-align:center;">$latex \Psi_V(\mathbf{R}) = \psi_1(\mathbf{r}_1)+\psi_1(\mathbf{r}_2)+\psi_2(\mathbf{r}_{1'})+\psi_2(\mathbf{r}_{2'}), $</p>
+The new probability density will be:
+
+[code language="python"]
+def prob_density(R, N):
+    ''' The square of the many body wave function
+        Psi_V(R). '''
+
+    psi_v = sum([psi_1(R[n][0], R[n][1]) for n in range(int(N/2))]) + \
+            sum([psi_2(R[n][0], R[n][1]) for n in range(int(N/2),N)])
+
+    # Setting anything outside the box equal to zero
+    # This will keep particles inside
+    for coordinate in R.ravel():
+        if abs(coordinate) &gt;= 1:
+            psi_v = 0
+
+    return np.float64(psi_v**2)
+[/code]
+
+This should have the effect of separating the two species of particles. Do you think $latex \langle E \rangle$ will become larger or smaller as a result?
+
+Plotting some of the samples, we can see how the system now equilibrates according to the new probability density:
+
+<img class=" size-full wp-image-2184 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/vmc_n_4_random_start_split_species_psi_v.png" alt="VMC_N_4_random_start_split_species_Psi_V" width="2192" height="1197" />
+
+Comparing a calculation with the new $latex \Psi_V$ (red) to the old one (blue), we see an increase in $latex \langle E \rangle$:
+
+<img class=" size-full wp-image-2178 aligncenter" src="https://galeascience.files.wordpress.com/2016/05/vmc_n_4_3k-steps_5k-walkers_psi_v_compare.png" alt="VMC_N_4_3k-steps_5k-walkers_Psi_V_compare" width="1710" height="950" />
+
+&nbsp;
+
+Thanks for reading! You can find the entire ipython notebook document <a href="https://github.com/agalea91/intro_to_QMC/blob/master/post_4_vmc/variational_monte_carlo.ipynb">here</a>. If you would like to discuss any of the plots or have any questions or corrections, please write a comment. You are also welcome to email me at agalea91@gmail.com or tweet me @agalea91
+
+&nbsp;
+
+&nbsp;
+
+[1] - For example we could have a system of <a href="https://en.wikipedia.org/wiki/Ultracold_atom">cold atoms</a> with two species that are identical except for the total spin. Where one species is spin-up and the other is spin-down.
+
+[2] - In practice, the error on Monte Carlo calculations is often given by the standard deviation divided by $latex \sqrt{N}$. Otherwise the error does not decrease as $N$ increases, which should intuitively be the case because we are building confidence in the calculation as the simulation is run longer. For more information see <a href="http://www.tqmp.org/RegularArticles/vol10-2/p107/p107.pdf">this article</a> - specifically the first few equations and Figure 1.
